@@ -1,0 +1,1529 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Island Survival 3D — HD Beach Adventure</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+    html, body {
+      width: 100%; height: 100%; overflow: hidden;
+      background: #071926;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #f8fafc;
+      touch-action: none;
+    }
+    #game-canvas { display: block; width: 100%; height: 100%; }
+
+    /* Glassmorphic UI */
+    .glass {
+      background: rgba(10, 22, 34, 0.62);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    }
+
+    /* HUD */
+    #hud {
+      position: fixed; inset: 0; pointer-events: none;
+      display: none; flex-direction: column; justify-content: space-between;
+      padding: 14px; z-index: 10;
+    }
+    .hud-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+    .stats-panel {
+      pointer-events: auto;
+      border-radius: 16px; padding: 12px 14px; min-width: 220px; max-width: 270px;
+    }
+    .day-row {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 13px; font-weight: 700; letter-spacing: 0.4px; margin-bottom: 10px;
+      color: #fde68a;
+    }
+    .bar-wrap { margin-bottom: 7px; }
+    .bar-wrap:last-child { margin-bottom: 0; }
+    .bar-label {
+      display: flex; justify-content: space-between; font-size: 11px;
+      font-weight: 600; margin-bottom: 3px; color: #e2e8f0;
+    }
+    .bar-bg {
+      height: 7px; border-radius: 99px; background: rgba(255,255,255,0.12); overflow: hidden;
+    }
+    .bar-fill { height: 100%; border-radius: 99px; transition: width 0.2s ease; }
+    .fill-hp { background: linear-gradient(90deg, #ef4444, #f87171); }
+    .fill-hunger { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .fill-thirst { background: linear-gradient(90deg, #0ea5e9, #38bdf8); }
+    .fill-stamina { background: linear-gradient(90deg, #10b981, #34d399); }
+
+    .top-actions { display: flex; gap: 8px; pointer-events: auto; flex-wrap: wrap; justify-content: flex-end; }
+    .icon-btn {
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(10, 22, 34, 0.65);
+      backdrop-filter: blur(10px);
+      color: #f8fafc; border-radius: 12px;
+      padding: 8px 12px; font-size: 12px; font-weight: 600;
+      cursor: pointer; display: flex; align-items: center; gap: 6px;
+      transition: transform 0.12s ease, background 0.15s ease;
+    }
+    .icon-btn:hover { background: rgba(255,255,255,0.16); }
+    .icon-btn:active { transform: scale(0.95); }
+
+    /* Crosshair & Interaction Prompt */
+    #crosshair {
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 10px; height: 10px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.75);
+      box-shadow: 0 0 6px rgba(0,0,0,0.6);
+      pointer-events: none; z-index: 9; display: none;
+    }
+    #interact-prompt {
+      position: fixed; top: 57%; left: 50%; transform: translateX(-50%);
+      padding: 7px 14px; border-radius: 99px; font-size: 13px; font-weight: 600;
+      pointer-events: none; z-index: 11; display: none;
+      background: rgba(15, 23, 42, 0.82); border: 1px solid rgba(250, 204, 21, 0.5);
+      color: #fef08a; white-space: nowrap;
+    }
+
+    /* Toast */
+    #toast-box {
+      position: fixed; top: 76px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; gap: 6px; align-items: center;
+      pointer-events: none; z-index: 30;
+    }
+    .toast {
+      padding: 8px 16px; border-radius: 99px; font-size: 13px; font-weight: 600;
+      background: rgba(15, 23, 42, 0.86); border: 1px solid rgba(56, 189, 248, 0.45);
+      color: #f8fafc; animation: fadeUp 0.25s ease;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Bottom Inventory Bar */
+    .hud-bottom { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+    .hotbar {
+      pointer-events: auto; display: flex; gap: 6px; padding: 8px;
+      border-radius: 16px; flex-wrap: wrap; justify-content: center;
+    }
+    .inv-slot {
+      min-width: 58px; padding: 6px 8px; border-radius: 10px;
+      background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      cursor: pointer; transition: all 0.15s ease;
+    }
+    .inv-slot.usable:hover { background: rgba(56, 189, 248, 0.22); border-color: #38bdf8; }
+    .inv-icon { font-size: 18px; line-height: 1.1; }
+    .inv-count { font-size: 12px; font-weight: 700; color: #f8fafc; }
+    .inv-name { font-size: 9px; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.3px; }
+
+    /* Touch Controls */
+    #touch-controls {
+      position: fixed; inset: 0; pointer-events: none; z-index: 12; display: none;
+    }
+    #joystick-zone {
+      position: absolute; bottom: 92px; left: 20px; width: 124px; height: 124px;
+      border-radius: 50%; background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.2); pointer-events: auto;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #joystick-knob {
+      width: 48px; height: 48px; border-radius: 50%;
+      background: rgba(255,255,255,0.45); box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+      transform: translate(0px, 0px);
+    }
+    .touch-btns {
+      position: absolute; bottom: 92px; right: 20px;
+      display: grid; grid-template-columns: repeat(2, 62px); gap: 10px; pointer-events: auto;
+    }
+    .t-btn {
+      width: 62px; height: 62px; border-radius: 50%;
+      background: rgba(15, 23, 42, 0.65); border: 2px solid rgba(255,255,255,0.26);
+      color: #fff; font-size: 11px; font-weight: 700;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+      backdrop-filter: blur(8px);
+    }
+    .t-btn:active { background: rgba(56, 189, 248, 0.45); transform: scale(0.94); }
+
+    /* Modals (Start, Craft, Pause, End) */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 40;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(5, 14, 24, 0.58); backdrop-filter: blur(8px);
+      padding: 18px;
+    }
+    .modal-card {
+      width: 100%; max-width: 520px; border-radius: 22px; padding: 26px;
+      background: rgba(12, 26, 40, 0.9);
+      border: 1px solid rgba(255,255,255,0.16);
+      box-shadow: 0 24px 64px rgba(0,0,0,0.55);
+      max-height: 90vh; overflow-y: auto;
+    }
+    .badge {
+      display: inline-block; padding: 4px 10px; border-radius: 99px;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.6px;
+      background: rgba(14, 165, 233, 0.22); color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.35); margin-bottom: 10px;
+    }
+    h1 { font-size: 28px; font-weight: 800; line-height: 1.15; margin-bottom: 8px; }
+    h2 { font-size: 20px; font-weight: 700; margin-bottom: 12px; }
+    p.sub { font-size: 14px; color: #cbd5e1; line-height: 1.5; margin-bottom: 18px; }
+    .primary-btn {
+      width: 100%; padding: 14px 18px; border-radius: 14px; border: none;
+      background: linear-gradient(135deg, #0ea5e9, #0284c7);
+      color: #fff; font-size: 15px; font-weight: 700; cursor: pointer;
+      box-shadow: 0 8px 24px rgba(14, 165, 233, 0.35);
+      transition: transform 0.12s ease, filter 0.15s ease;
+    }
+    .primary-btn:hover { filter: brightness(1.08); }
+    .primary-btn:active { transform: scale(0.98); }
+    .secondary-btn {
+      width: 100%; padding: 11px 16px; border-radius: 12px;
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.16);
+      color: #f8fafc; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 8px;
+    }
+
+    .craft-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+    .craft-item {
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      padding: 12px; border-radius: 14px;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+    }
+    .craft-info h3 { font-size: 14px; font-weight: 700; margin-bottom: 3px; }
+    .craft-info p { font-size: 12px; color: #94a3b8; }
+    .craft-cost { font-size: 11px; color: #fde68a; margin-top: 4px; font-weight: 600; }
+    .craft-btn {
+      padding: 8px 14px; border-radius: 10px; border: none;
+      background: #10b981; color: #052e16; font-size: 12px; font-weight: 800;
+      cursor: pointer; white-space: nowrap;
+    }
+    .craft-btn:disabled { background: rgba(255,255,255,0.12); color: #64748b; cursor: not-allowed; }
+
+    .ctrl-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+      margin-bottom: 18px; font-size: 12px; color: #cbd5e1;
+    }
+    .ctrl-box {
+      padding: 10px; border-radius: 12px; background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .ctrl-box strong { color: #f8fafc; display: block; margin-bottom: 2px; }
+
+    @media (max-width: 640px) {
+      .stats-panel { min-width: 175px; padding: 10px; }
+      .inv-slot { min-width: 48px; padding: 5px; }
+      h1 { font-size: 22px; }
+      .ctrl-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#071926" />
+</head>
+<body>
+  <canvas id="game-canvas"></canvas>
+  <div id="crosshair"></div>
+  <div id="interact-prompt">[E] Kumpulkan</div>
+  <div id="toast-box"></div>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div class="hud-top">
+      <div class="stats-panel glass">
+        <div class="day-row">
+          <span id="day-label">☀️ Hari 1 • 08:00</span>
+          <span id="goal-label" style="font-size:11px;color:#7dd3fc;">Rakit: 0/1</span>
+        </div>
+        <div class="bar-wrap">
+          <div class="bar-label"><span>❤️ Kesehatan</span><span id="hp-val">100%</span></div>
+          <div class="bar-bg"><div id="hp-bar" class="bar-fill fill-hp" style="width:100%"></div></div>
+        </div>
+        <div class="bar-wrap">
+          <div class="bar-label"><span>🍖 Lapar</span><span id="hunger-val">100%</span></div>
+          <div class="bar-bg"><div id="hunger-bar" class="bar-fill fill-hunger" style="width:100%"></div></div>
+        </div>
+        <div class="bar-wrap">
+          <div class="bar-label"><span>💧 Haus</span><span id="thirst-val">100%</span></div>
+          <div class="bar-bg"><div id="thirst-bar" class="bar-fill fill-thirst" style="width:100%"></div></div>
+        </div>
+        <div class="bar-wrap">
+          <div class="bar-label"><span>⚡ Stamina</span><span id="stamina-val">100%</span></div>
+          <div class="bar-bg"><div id="stamina-bar" class="bar-fill fill-stamina" style="width:100%"></div></div>
+        </div>
+      </div>
+
+      <div class="top-actions">
+        <button id="btn-craft" class="icon-btn">🔨 Craft (C)</button>
+        <button id="btn-quality" class="icon-btn">✨ HD: Ultra</button>
+        <button id="btn-sound" class="icon-btn">🔊 Audio</button>
+        <button id="btn-pause" class="icon-btn">⏸️ Jeda</button>
+      </div>
+    </div>
+
+    <div class="hud-bottom">
+      <div id="hotbar" class="hotbar glass"></div>
+    </div>
+  </div>
+
+  <!-- Touch Controls -->
+  <div id="touch-controls">
+    <div id="joystick-zone"><div id="joystick-knob"></div></div>
+    <div class="touch-btns">
+      <button id="t-gather" class="t-btn">✋<span>Ambil</span></button>
+      <button id="t-jump" class="t-btn">⬆️<span>Lompat</span></button>
+      <button id="t-craft" class="t-btn">🔨<span>Craft</span></button>
+      <button id="t-use" class="t-btn">🥥<span>Makan</span></button>
+    </div>
+  </div>
+
+  <!-- Start Modal -->
+  <div id="start-modal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="badge">3D HD SURVIVAL • WEBGL PBR</div>
+      <h1>Island Survival 3D</h1>
+      <p class="sub">
+        Kamu terdampar di pulau tropis terpencil. Kumpulkan kayu, batu, kelapa, buah beri, dan ikan. Bangun api unggun, tempat berteduh, lalu rakit penyelamat untuk kabur sebelum kehabisan tenaga!
+      </p>
+      <div class="ctrl-grid">
+        <div class="ctrl-box"><strong>🖥️ Kontrol PC</strong>WASD / Panah: Jalan • Shift: Lari<br>Klik / Geser Layar: Lihat Sekitar<br>E: Ambil/Interaksi • C: Craft • Space: Lompat</div>
+        <div class="ctrl-box"><strong>📱 Kontrol HP</strong>Joystick Kiri: Jalan<br>Geser Kanan: Putar Kamera<br>Tombol Layar: Ambil, Lompat, Craft</div>
+      </div>
+      <button id="btn-start" class="primary-btn">🏝️ Mulai Petualangan</button>
+    </div>
+  </div>
+
+  <!-- Craft Modal -->
+  <div id="craft-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h2 style="margin:0;">🔨 Meja Crafting</h2>
+        <button id="btn-close-craft" class="icon-btn">✖ Tutup</button>
+      </div>
+      <div id="craft-list" class="craft-list"></div>
+    </div>
+  </div>
+
+  <!-- Pause / Settings Modal -->
+  <div id="pause-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card">
+      <h2>⏸️ Permainan Dijeda</h2>
+      <p class="sub">Atur kualitas grafis HD atau lanjutkan petualanganmu di pulau.</p>
+      <button id="btn-resume" class="primary-btn">▶️ Lanjutkan</button>
+      <button id="btn-toggle-touch" class="secondary-btn">📱 Tampilkan/Sembunyikan Kontrol Sentuh</button>
+      <button id="btn-restart-pause" class="secondary-btn">🔄 Mulai Ulang Pulau</button>
+    </div>
+  </div>
+
+  <!-- End Modal -->
+  <div id="end-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-card" style="text-align:center;">
+      <div id="end-badge" class="badge">MISI SELESAI</div>
+      <h1 id="end-title">Kamu Berhasil Kabur!</h1>
+      <p id="end-desc" class="sub"></p>
+      <button id="btn-play-again" class="primary-btn">🏝️ Main Lagi</button>
+    </div>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- PROCEDURAL AUDIO ENGINE (Web Audio API) ----------
+  const AudioEngine = {
+    ctx: null, muted: false, oceanGain: null, fireGain: null,
+    init() {
+      if (this.ctx) {
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+        return;
+      }
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      this.ctx = new AC();
+      // Ocean waves ambient loop (filtered noise + slow LFO)
+      const bufferSize = this.ctx.sampleRate * 3;
+      const noiseBuf = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = noiseBuf.getChannelData(0);
+      let lastOut = 0;
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1;
+        data[i] = (lastOut + 0.02 * white) / 1.02;
+        lastOut = data[i];
+        data[i] *= 3.2;
+      }
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = noiseBuf;
+      noise.loop = true;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 380;
+
+      const lfo = this.ctx.createOscillator();
+      lfo.frequency.value = 0.14;
+      const lfoGain = this.ctx.createGain();
+      lfoGain.gain.value = 180;
+      lfo.connect(lfoGain);
+      lfoGain.connect(filter.frequency);
+
+      this.oceanGain = this.ctx.createGain();
+      this.oceanGain.gain.value = this.muted ? 0 : 0.16;
+
+      noise.connect(filter);
+      filter.connect(this.oceanGain);
+      this.oceanGain.connect(this.ctx.destination);
+      noise.start();
+      lfo.start();
+    },
+    toggleMute() {
+      this.muted = !this.muted;
+      if (this.oceanGain && this.ctx) {
+        this.oceanGain.gain.setTargetAtTime(this.muted ? 0 : 0.16, this.ctx.currentTime, 0.1);
+      }
+      return this.muted;
+    },
+    playTone(freq, dur, type = 'sine', vol = 0.18, slideTo = null) {
+      if (this.muted || !this.ctx) return;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now);
+      if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, now + dur);
+      gain.gain.setValueAtTime(vol, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + dur);
+    },
+    playGather() { this.playTone(170, 0.12, 'triangle', 0.25, 70); },
+    playCraft() {
+      this.playTone(523, 0.12, 'sine', 0.18);
+      setTimeout(() => this.playTone(659, 0.16, 'sine', 0.18), 90);
+      setTimeout(() => this.playTone(784, 0.22, 'sine', 0.2), 180);
+    },
+    playEat() { this.playTone(340, 0.1, 'sine', 0.15, 520); },
+    playJump() { this.playTone(180, 0.15, 'sine', 0.14, 340); }
+  };
+
+  // ---------- PROCEDURAL HD CANVAS TEXTURES ----------
+  function makeCanvasTex(size, drawFn, repeat = 1) {
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    drawFn(ctx, size);
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(repeat, repeat);
+    tex.encoding = THREE.sRGBEncoding;
+    return tex;
+  }
+
+  const texSand = makeCanvasTex(512, (ctx, s) => {
+    ctx.fillStyle = '#e7c98f';
+    ctx.fillRect(0, 0, s, s);
+    for (let i = 0; i < 18000; i++) {
+      const x = Math.random() * s, y = Math.random() * s;
+      const v = Math.random() > 0.5 ? 'rgba(255,248,220,0.22)' : 'rgba(166,124,62,0.18)';
+      ctx.fillStyle = v;
+      ctx.fillRect(x, y, 2, 2);
+    }
+    ctx.strokeStyle = 'rgba(180,140,80,0.12)';
+    ctx.lineWidth = 3;
+    for (let y = 0; y < s; y += 18) {
+      ctx.beginPath();
+      for (let x = 0; x <= s; x += 16) {
+        ctx.lineTo(x, y + Math.sin(x * 0.05) * 4);
+      }
+      ctx.stroke();
+    }
+  }, 14);
+
+  const texBark = makeCanvasTex(256, (ctx, s) => {
+    ctx.fillStyle = '#6b4c35';
+    ctx.fillRect(0, 0, s, s);
+    for (let y = 0; y < s; y += 16) {
+      ctx.fillStyle = y % 32 === 0 ? 'rgba(42,26,15,0.38)' : 'rgba(130,96,68,0.25)';
+      ctx.fillRect(0, y, s, 8);
+    }
+  }, 1);
+
+  const texRock = makeCanvasTex(256, (ctx, s) => {
+    ctx.fillStyle = '#64748b';
+    ctx.fillRect(0, 0, s, s);
+    for (let i = 0; i < 4000; i++) {
+      ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.2)';
+      ctx.fillRect(Math.random() * s, Math.random() * s, 4, 4);
+    }
+  }, 2);
+
+  const texWood = makeCanvasTex(256, (ctx, s) => {
+    ctx.fillStyle = '#8b5a2b';
+    ctx.fillRect(0, 0, s, s);
+    ctx.strokeStyle = 'rgba(45,24,10,0.35)';
+    ctx.lineWidth = 2;
+    for (let y = 0; y < s; y += 12) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(s, y + (Math.random() - 0.5) * 4);
+      ctx.stroke();
+    }
+  }, 1);
+
+  // ---------- THREE.JS SCENE SETUP ----------
+  const canvas = document.getElementById('game-canvas');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.12;
+  renderer.outputEncoding = THREE.sRGBEncoding;
+
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x87ceeb, 0.0065);
+
+  const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.1, 450);
+
+  const qualityPresets = ['Ultra', 'High', 'Medium'];
+  let qualityIdx = 0;
+  function applyQuality() {
+    const q = qualityPresets[qualityIdx];
+    const dpr = q === 'Ultra' ? Math.min(window.devicePixelRatio, 2) : (q === 'High' ? 1.25 : 0.85);
+    renderer.setPixelRatio(dpr);
+    renderer.shadowMap.enabled = q !== 'Medium';
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+    document.getElementById('btn-quality').textContent = `✨ HD: ${q}`;
+  }
+  applyQuality();
+
+  // ---------- LIGHTING & SKY ----------
+  const hemiLight = new THREE.HemisphereLight(0xbbe6ff, 0xd4a373, 0.72);
+  scene.add(hemiLight);
+
+  const sunLight = new THREE.DirectionalLight(0xfff4d6, 1.8);
+  sunLight.position.set(45, 65, 30);
+  sunLight.castShadow = true;
+  sunLight.shadow.mapSize.width = 2048;
+  sunLight.shadow.mapSize.height = 2048;
+  sunLight.shadow.camera.near = 5;
+  sunLight.shadow.camera.far = 190;
+  const d = 58;
+  sunLight.shadow.camera.left = -d;
+  sunLight.shadow.camera.right = d;
+  sunLight.shadow.camera.top = d;
+  sunLight.shadow.camera.bottom = -d;
+  sunLight.shadow.bias = -0.0005;
+  scene.add(sunLight);
+
+  // Sun & Moon Visual Spheres + Starfield
+  const sunMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(5, 24, 24),
+    new THREE.MeshBasicMaterial({ color: 0xfff3b0 })
+  );
+  scene.add(sunMesh);
+
+  const starGeo = new THREE.BufferGeometry();
+  const starPos = [];
+  for (let i = 0; i < 650; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(Math.random() * 0.85 + 0.15);
+    const r = 210;
+    starPos.push(r * Math.sin(phi) * Math.cos(theta), r * Math.cos(phi), r * Math.sin(phi) * Math.sin(theta));
+  }
+  starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+  const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.4, transparent: true, opacity: 0 });
+  const stars = new THREE.Points(starGeo, starMat);
+  scene.add(stars);
+
+  // Floating Clouds
+  const clouds = [];
+  const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, flatShading: true });
+  for (let i = 0; i < 14; i++) {
+    const cg = new THREE.Group();
+    const parts = 3 + Math.floor(Math.random() * 3);
+    for (let p = 0; p < parts; p++) {
+      const m = new THREE.Mesh(new THREE.DodecahedronGeometry(3.2 + Math.random() * 2.5, 1), cloudMat);
+      m.position.set((p - 1.5) * 3.5, Math.random() * 1.2, (Math.random() - 0.5) * 2.5);
+      m.scale.set(1.3, 0.6, 1);
+      cg.add(m);
+    }
+    cg.position.set((Math.random() - 0.5) * 220, 42 + Math.random() * 18, (Math.random() - 0.5) * 220);
+    scene.add(cg);
+    clouds.push({ mesh: cg, speed: 0.5 + Math.random() * 0.7 });
+  }
+
+  // ---------- TERRAIN HEIGHT FUNCTION ----------
+  function getIslandHeight(x, z) {
+    const dist = Math.sqrt(x * x + z * z);
+    const angle = Math.atan2(z, x);
+    const cove = Math.sin(angle * 3 + 0.6) * 3.2 + Math.cos(angle * 5) * 1.6;
+    const radius = 38 + cove;
+    const norm = dist / radius;
+    if (norm > 1.35) return -3.2;
+    const base = Math.cos(Math.min(norm, 1.35) * (Math.PI / 2)) * 6.5;
+    const dune = Math.sin(x * 0.14) * Math.cos(z * 0.14) * 0.65;
+    const hill = dist < 16 ? (1 - dist / 16) * 2.8 : 0;
+    return base + dune + hill - 0.6;
+  }
+
+  // Island Mesh with Vertex Colors (Wet sand -> Golden sand -> Lush grass)
+  const terrainGeo = new THREE.PlaneGeometry(150, 150, 110, 110);
+  terrainGeo.rotateX(-Math.PI / 2);
+  const posAttr = terrainGeo.attributes.position;
+  const colors = [];
+  const cWet = new THREE.Color(0xb8955a);
+  const cSand = new THREE.Color(0xf2d492);
+  const cGrass = new THREE.Color(0x4d9043);
+  for (let i = 0; i < posAttr.count; i++) {
+    const x = posAttr.getX(i), z = posAttr.getZ(i);
+    const y = getIslandHeight(x, z);
+    posAttr.setY(i, y);
+    let col = cSand.clone();
+    if (y < 0.35) col.lerp(cWet, 0.75);
+    else if (y > 2.4) col.lerp(cGrass, Math.min(1, (y - 2.4) / 2.2));
+    colors.push(col.r, col.g, col.b);
+  }
+  terrainGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  terrainGeo.computeVertexNormals();
+
+  const terrainMat = new THREE.MeshStandardMaterial({
+    map: texSand, vertexColors: true, roughness: 0.88, metalness: 0.04
+  });
+  const terrain = new THREE.Mesh(terrainGeo, terrainMat);
+  terrain.receiveShadow = true;
+  scene.add(terrain);
+
+  // ---------- ANIMATED OCEAN WATER ----------
+  const waterGeo = new THREE.PlaneGeometry(420, 420, 96, 96);
+  waterGeo.rotateX(-Math.PI / 2);
+  const waterBaseY = new Float32Array(waterGeo.attributes.position.count);
+  const waterMat = new THREE.MeshPhysicalMaterial({
+    color: 0x0694a2,
+    emissive: 0x022c43,
+    emissiveIntensity: 0.25,
+    roughness: 0.14,
+    metalness: 0.15,
+    clearcoat: 0.9,
+    clearcoatRoughness: 0.1,
+    transparent: true,
+    opacity: 0.86,
+    flatShading: false
+  });
+  const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+  waterMesh.position.y = 0;
+  waterMesh.receiveShadow = true;
+  scene.add(waterMesh);
+
+  // ---------- INTERACTABLE WORLD OBJECTS ----------
+  const interactables = [];
+  const palmFronds = [];
+  const wildlife = [];
+  let campfireObj = null;
+  let campfireLight = null;
+  let shelterObj = null;
+  let raftObj = null;
+
+  function createPalmTree(x, z, hasCoconut) {
+    const y = getIslandHeight(x, z);
+    if (y < 0.8) return;
+    const g = new THREE.Group();
+    g.position.set(x, y, z);
+
+    const lean = (Math.random() - 0.5) * 0.25;
+    const segments = 6;
+    let curY = 0, curX = 0;
+    const trunkMat = new THREE.MeshStandardMaterial({ map: texBark, roughness: 0.9 });
+    for (let i = 0; i < segments; i++) {
+      const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.28 - i * 0.03, 0.34 - i * 0.03, 1.35, 8), trunkMat);
+      seg.position.set(curX, curY + 0.65, 0);
+      seg.rotation.z = lean * (i + 1) * 0.28;
+      seg.castShadow = true;
+      seg.receiveShadow = true;
+      g.add(seg);
+      curY += 1.22;
+      curX -= Math.sin(seg.rotation.z) * 0.8;
+    }
+
+    const crown = new THREE.Group();
+    crown.position.set(curX, curY, 0);
+    const frondMat = new THREE.MeshStandardMaterial({ color: 0x2e8b3c, roughness: 0.65, side: THREE.DoubleSide });
+    for (let f = 0; f < 7; f++) {
+      const fGeo = new THREE.ConeGeometry(0.65, 3.6, 5);
+      fGeo.scale(1, 1, 0.14);
+      fGeo.translate(0, 1.7, 0);
+      const frond = new THREE.Mesh(fGeo, frondMat);
+      frond.rotation.y = (f / 7) * Math.PI * 2;
+      frond.rotation.x = 1.12;
+      frond.castShadow = true;
+      crown.add(frond);
+      palmFronds.push({ mesh: frond, phase: Math.random() * 6 });
+    }
+    g.add(crown);
+
+    if (hasCoconut) {
+      const cocoMat = new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.8 });
+      for (let c = 0; c < 2; c++) {
+        const coco = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 10), cocoMat);
+        coco.position.set(curX + (c === 0 ? 0.3 : -0.3), curY - 0.35, 0.25);
+        coco.castShadow = true;
+        g.add(coco);
+      }
+    }
+
+    g.rotation.y = Math.random() * Math.PI * 2;
+    scene.add(g);
+    interactables.push({
+      id: Math.random().toString(36),
+      type: hasCoconut ? 'palm_coco' : 'palm',
+      label: hasCoconut ? 'Pohon Kelapa (Ambil Kelapa & Kayu)' : 'Pohon Palem (Tebang Kayu)',
+      mesh: g,
+      pos: new THREE.Vector3(x, y + 1, z),
+      cooldown: 0
+    });
+  }
+
+  function createRock(x, z) {
+    const y = getIslandHeight(x, z);
+    if (y < 0.2) return;
+    const mat = new THREE.MeshStandardMaterial({ map: texRock, roughness: 0.85, flatShading: true });
+    const mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(0.9 + Math.random() * 0.6, 1), mat);
+    mesh.position.set(x, y + 0.45, z);
+    mesh.scale.set(1.2, 0.85, 1);
+    mesh.rotation.set(Math.random(), Math.random(), Math.random());
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    interactables.push({
+      id: Math.random().toString(36),
+      type: 'rock',
+      label: 'Batu Karang (Ambil Batu)',
+      mesh,
+      pos: mesh.position.clone(),
+      cooldown: 0
+    });
+  }
+
+  function createDriftwood(x, z) {
+    const y = getIslandHeight(x, z);
+    if (y < 0.1 || y > 2.2) return;
+    const mat = new THREE.MeshStandardMaterial({ map: texWood, roughness: 0.9 });
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 2.2, 8), mat);
+    mesh.position.set(x, y + 0.15, z);
+    mesh.rotation.set(0.08, Math.random() * Math.PI, Math.PI / 2);
+    mesh.castShadow = true;
+    scene.add(mesh);
+    interactables.push({
+      id: Math.random().toString(36),
+      type: 'wood',
+      label: 'Kayu Apung (Ambil Kayu)',
+      mesh,
+      pos: mesh.position.clone(),
+      cooldown: 0
+    });
+  }
+
+  function createBerryBush(x, z) {
+    const y = getIslandHeight(x, z);
+    if (y < 2.1) return;
+    const g = new THREE.Group();
+    g.position.set(x, y + 0.4, z);
+    const leafMat = new THREE.MeshStandardMaterial({ color: 0x226b2c, roughness: 0.85, flatShading: true });
+    const bush = new THREE.Mesh(new THREE.DodecahedronGeometry(0.75, 1), leafMat);
+    bush.castShadow = true;
+    g.add(bush);
+    const berryMat = new THREE.MeshStandardMaterial({ color: 0xe11d48, roughness: 0.3 });
+    for (let i = 0; i < 6; i++) {
+      const b = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), berryMat);
+      b.position.set((Math.random() - 0.5) * 0.9, Math.random() * 0.5, (Math.random() - 0.5) * 0.9);
+      g.add(b);
+    }
+    scene.add(g);
+    interactables.push({
+      id: Math.random().toString(36),
+      type: 'berry',
+      label: 'Semak Beri (Ambil Buah Beri)',
+      mesh: g,
+      pos: g.position.clone(),
+      cooldown: 0
+    });
+  }
+
+  function createFishSpot(x, z) {
+    const g = new THREE.Group();
+    g.position.set(x, -0.35, z);
+    const fishMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.3, metalness: 0.2 });
+    const body = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.7, 6), fishMat);
+    body.rotation.x = Math.PI / 2;
+    g.add(body);
+    scene.add(g);
+    wildlife.push({ mesh: g, baseX: x, baseZ: z, angle: Math.random() * 6, speed: 0.8 + Math.random() * 0.6, radius: 2.5 });
+    interactables.push({
+      id: Math.random().toString(36),
+      type: 'fish',
+      label: 'Ikan Laguna (Tangkap Ikan)',
+      mesh: g,
+      pos: g.position,
+      cooldown: 0
+    });
+  }
+
+  // Populate Island
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2 + Math.random() * 0.2;
+    const r = 10 + Math.random() * 20;
+    createPalmTree(Math.cos(a) * r, Math.sin(a) * r, i % 2 === 0);
+  }
+  for (let i = 0; i < 16; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 12 + Math.random() * 22;
+    createRock(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  for (let i = 0; i < 14; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 24 + Math.random() * 11;
+    createDriftwood(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  for (let i = 0; i < 10; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 4 + Math.random() * 11;
+    createBerryBush(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const r = 42 + Math.random() * 5;
+    createFishSpot(Math.cos(a) * r, Math.sin(a) * r);
+  }
+
+  // ---------- GAME STATE ----------
+  const state = {
+    started: false,
+    paused: false,
+    ended: false,
+    day: 1,
+    timeOfDay: 0.34, // 0..1 (0.25=06:00, 0.5=12:00, 0.75=18:00)
+    hp: 100,
+    hunger: 100,
+    thirst: 100,
+    stamina: 100,
+    hasAxe: false,
+    hasCampfire: false,
+    hasShelter: false,
+    hasRaft: false,
+    gatheredTotal: 0,
+    inv: {
+      wood: 2,
+      stone: 1,
+      palmLeaf: 2,
+      coconut: 1,
+      berry: 1,
+      rawFish: 0,
+      cocoDrink: 0,
+      grilledFish: 0
+    }
+  };
+
+  const recipes = [
+    {
+      id: 'cocoDrink', name: '🥥 Air Kelapa Segar',
+      desc: 'Pulihkan +35 Haus & +10 Kesehatan',
+      costText: 'Butuh: 1 Kelapa',
+      cost: { coconut: 1 },
+      craft() { state.inv.coconut -= 1; state.inv.cocoDrink += 1; toast('Berhasil membuat Air Kelapa!'); }
+    },
+    {
+      id: 'grilledFish', name: '🍖 Ikan Bakar',
+      desc: 'Pulihkan +45 Lapar & +15 Kesehatan',
+      costText: 'Butuh: 1 Ikan Mentah + 1 Kayu',
+      cost: { rawFish: 1, wood: 1 },
+      craft() { state.inv.rawFish -= 1; state.inv.wood -= 1; state.inv.grilledFish += 1; toast('Ikan Bakar siap disantap!'); }
+    },
+    {
+      id: 'axe', name: '🪓 Kapak Batu',
+      desc: 'Gandakan hasil kayu & batu saat menebang/menambang',
+      costText: 'Butuh: 2 Kayu + 2 Batu',
+      cost: { wood: 2, stone: 2 },
+      oneTime: () => state.hasAxe,
+      craft() { state.inv.wood -= 2; state.inv.stone -= 2; state.hasAxe = true; toast('Kapak Batu dibuat! Hasil panen 2x lipat.'); }
+    },
+    {
+      id: 'campfire', name: '🔥 Api Unggun 3D',
+      desc: 'Memberi cahaya hangat di malam hari',
+      costText: 'Butuh: 3 Kayu + 2 Batu',
+      cost: { wood: 3, stone: 2 },
+      oneTime: () => state.hasCampfire,
+      craft() {
+        state.inv.wood -= 3; state.inv.stone -= 2; state.hasCampfire = true;
+        spawnCampfire();
+        toast('Api Unggun dinyalakan di pantai!');
+      }
+    },
+    {
+      id: 'shelter', name: '🏕️ Gubuk Pantai 3D',
+      desc: 'Tempat berteduh; tekan E di gubuk untuk tidur hingga pagi',
+      costText: 'Butuh: 6 Kayu + 4 Daun Palem',
+      cost: { wood: 6, palmLeaf: 4 },
+      oneTime: () => state.hasShelter,
+      craft() {
+        state.inv.wood -= 6; state.inv.palmLeaf -= 4; state.hasShelter = true;
+        spawnShelter();
+        toast('Gubuk Pantai selesai dibangun!');
+      }
+    },
+    {
+      id: 'raft', name: '⛵ Rakit Penyelamat 3D',
+      desc: 'Tujuan Akhir! Naiki rakit di tepi laut untuk kabur',
+      costText: 'Butuh: 10 Kayu + 6 Daun Palem + 2 Batu',
+      cost: { wood: 10, palmLeaf: 6, stone: 2 },
+      oneTime: () => state.hasRaft,
+      craft() {
+        state.inv.wood -= 10; state.inv.palmLeaf -= 6; state.inv.stone -= 2; state.hasRaft = true;
+        spawnRaft();
+        toast('⛵ Rakit Penyelamat selesai! Dekati rakit di tepi pantai!');
+      }
+    }
+  ];
+
+  // ---------- BUILDABLE 3D STRUCTURES ----------
+  let flameMesh = null;
+  function spawnCampfire() {
+    const px = player.pos.x + Math.sin(player.yaw) * -3;
+    const pz = player.pos.z + Math.cos(player.yaw) * -3;
+    const py = Math.max(0.4, getIslandHeight(px, pz));
+    const g = new THREE.Group();
+    g.position.set(px, py, pz);
+
+    const rockMat = new THREE.MeshStandardMaterial({ map: texRock, roughness: 0.9 });
+    for (let i = 0; i < 7; i++) {
+      const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.24, 0), rockMat);
+      const a = (i / 7) * Math.PI * 2;
+      r.position.set(Math.cos(a) * 0.6, 0.15, Math.sin(a) * 0.6);
+      g.add(r);
+    }
+    const logMat = new THREE.MeshStandardMaterial({ map: texWood, roughness: 0.9 });
+    for (let i = 0; i < 3; i++) {
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.1, 6), logMat);
+      log.position.y = 0.22;
+      log.rotation.z = Math.PI / 2;
+      log.rotation.y = (i / 3) * Math.PI;
+      g.add(log);
+    }
+    flameMesh = new THREE.Mesh(
+      new THREE.ConeGeometry(0.32, 0.95, 7),
+      new THREE.MeshBasicMaterial({ color: 0xff7b00 })
+    );
+    flameMesh.position.y = 0.62;
+    g.add(flameMesh);
+
+    campfireLight = new THREE.PointLight(0xff8c24, 3.2, 24);
+    campfireLight.position.set(0, 1.1, 0);
+    campfireLight.castShadow = true;
+    g.add(campfireLight);
+
+    scene.add(g);
+    campfireObj = g;
+  }
+
+  function spawnShelter() {
+    const px = 4, pz = 8;
+    const py = getIslandHeight(px, pz);
+    const g = new THREE.Group();
+    g.position.set(px, py, pz);
+    const woodMat = new THREE.MeshStandardMaterial({ map: texWood, roughness: 0.9 });
+    const leafMat = new THREE.MeshStandardMaterial({ color: 0x3b7a38, roughness: 0.85, side: THREE.DoubleSide });
+
+    [[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]].forEach(([cx, cz]) => {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 2.4, 7), woodMat);
+      post.position.set(cx, 1.2, cz);
+      post.castShadow = true;
+      g.add(post);
+    });
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(2.6, 1.4, 4), leafMat);
+    roof.position.y = 2.8;
+    roof.rotation.y = Math.PI / 4;
+    roof.castShadow = true;
+    g.add(roof);
+
+    scene.add(g);
+    shelterObj = g;
+    interactables.push({
+      id: 'shelter',
+      type: 'shelter',
+      label: 'Gubuk Pantai (Tidur hingga Pagi)',
+      mesh: g,
+      pos: new THREE.Vector3(px, py + 1, pz),
+      cooldown: 0
+    });
+  }
+
+  function spawnRaft() {
+    const px = 0, pz = 39;
+    const g = new THREE.Group();
+    g.position.set(px, 0.15, pz);
+    const woodMat = new THREE.MeshStandardMaterial({ map: texWood, roughness: 0.85 });
+    for (let i = -3; i <= 3; i++) {
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 4.4, 8), woodMat);
+      log.position.set(i * 0.42, 0, 0);
+      log.rotation.x = Math.PI / 2;
+      log.castShadow = true;
+      g.add(log);
+    }
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 4.2, 8), woodMat);
+    mast.position.set(0, 2.1, 0);
+    g.add(mast);
+    const sail = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.4, 2.6),
+      new THREE.MeshStandardMaterial({ color: 0xfef3c7, side: THREE.DoubleSide, roughness: 0.7 })
+    );
+    sail.position.set(0, 2.5, 0.15);
+    g.add(sail);
+
+    scene.add(g);
+    raftObj = g;
+    interactables.push({
+      id: 'raft',
+      type: 'raft',
+      label: '⛵ Rakit Penyelamat (Naik & Kabur!)',
+      mesh: g,
+      pos: g.position,
+      cooldown: 0
+    });
+    document.getElementById('goal-label').textContent = '⛵ Rakit Siap!';
+  }
+
+  // ---------- PLAYER CONTROLLER ----------
+  const player = {
+    pos: new THREE.Vector3(0, 3, 22),
+    velY: 0,
+    yaw: 0,
+    pitch: -0.08,
+    grounded: false,
+    speed: 8.5,
+    sprintMult: 1.55
+  };
+
+  const keys = {};
+  let joyVec = { x: 0, y: 0 };
+  let isDragging = false, lastX = 0, lastY = 0;
+
+  window.addEventListener('keydown', (e) => {
+    keys[e.code] = true;
+    if (!state.started || state.ended) return;
+    if (e.code === 'KeyE') tryInteract();
+    if (e.code === 'KeyC') toggleCraftModal();
+    if (e.code === 'KeyF') useBestConsumable();
+    if (e.code === 'Escape') togglePause();
+  });
+  window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+  canvas.addEventListener('mousedown', (e) => {
+    if (!state.started || state.paused || state.ended) return;
+    AudioEngine.init();
+    isDragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging || !state.started || state.paused || state.ended) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    player.yaw -= dx * 0.0045;
+    player.pitch = Math.max(-1.2, Math.min(1.2, player.pitch - dy * 0.0045));
+  });
+  window.addEventListener('mouseup', () => { isDragging = false; });
+
+  // Touch camera look (right side of screen)
+  let lookTouchId = null, lookLastX = 0, lookLastY = 0;
+  canvas.addEventListener('touchstart', (e) => {
+    AudioEngine.init();
+    for (const t of e.changedTouches) {
+      if (lookTouchId === null && t.clientX > window.innerWidth * 0.35) {
+        lookTouchId = t.identifier;
+        lookLastX = t.clientX;
+        lookLastY = t.clientY;
+      }
+    }
+  }, { passive: true });
+  canvas.addEventListener('touchmove', (e) => {
+    for (const t of e.changedTouches) {
+      if (t.identifier === lookTouchId) {
+        const dx = t.clientX - lookLastX;
+        const dy = t.clientY - lookLastY;
+        lookLastX = t.clientX; lookLastY = t.clientY;
+        player.yaw -= dx * 0.006;
+        player.pitch = Math.max(-1.2, Math.min(1.2, player.pitch - dy * 0.006));
+      }
+    }
+  }, { passive: true });
+  canvas.addEventListener('touchend', (e) => {
+    for (const t of e.changedTouches) {
+      if (t.identifier === lookTouchId) lookTouchId = null;
+    }
+  });
+
+  // Virtual Joystick
+  const joyZone = document.getElementById('joystick-zone');
+  const joyKnob = document.getElementById('joystick-knob');
+  let joyId = null;
+  joyZone.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    AudioEngine.init();
+    if (joyId === null && e.changedTouches.length > 0) {
+      joyId = e.changedTouches[0].identifier;
+    }
+  }, { passive: false });
+  joyZone.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+      if (t.identifier === joyId) {
+        const rect = joyZone.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        let dx = t.clientX - cx, dy = t.clientY - cy;
+        const maxR = 42;
+        const dist = Math.hypot(dx, dy);
+        if (dist > maxR) { dx = (dx / dist) * maxR; dy = (dy / dist) * maxR; }
+        joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+        joyVec.x = dx / maxR;
+        joyVec.y = dy / maxR;
+      }
+    }
+  }, { passive: false });
+  function resetJoy(e) {
+    for (const t of e.changedTouches) {
+      if (t.identifier === joyId) {
+        joyId = null;
+        joyVec.x = 0; joyVec.y = 0;
+        joyKnob.style.transform = 'translate(0px, 0px)';
+      }
+    }
+  }
+  joyZone.addEventListener('touchend', resetJoy);
+  joyZone.addEventListener('touchcancel', resetJoy);
+
+  // ---------- UI HELPERS ----------
+  function toast(msg) {
+    const box = document.getElementById('toast-box');
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = msg;
+    box.appendChild(el);
+    setTimeout(() => { el.remove(); }, 2800);
+  }
+
+  function renderHotbar() {
+    const items = [
+      { key: 'wood', icon: '🪵', name: 'Kayu', count: state.inv.wood },
+      { key: 'stone', icon: '🪨', name: 'Batu', count: state.inv.stone },
+      { key: 'palmLeaf', icon: '🌴', name: 'Daun', count: state.inv.palmLeaf },
+      { key: 'coconut', icon: '🥥', name: 'Kelapa', count: state.inv.coconut, use: () => useItem('coconut') },
+      { key: 'berry', icon: '🫐', name: 'Beri', count: state.inv.berry, use: () => useItem('berry') },
+      { key: 'rawFish', icon: '🐟', name: 'Ikan', count: state.inv.rawFish },
+      { key: 'cocoDrink', icon: '🥤', name: 'Air Kelapa', count: state.inv.cocoDrink, use: () => useItem('cocoDrink') },
+      { key: 'grilledFish', icon: '🍖', name: 'Ikan Bakar', count: state.inv.grilledFish, use: () => useItem('grilledFish') }
+    ];
+    const hb = document.getElementById('hotbar');
+    hb.innerHTML = '';
+    items.forEach((it) => {
+      const div = document.createElement('div');
+      div.className = 'inv-slot' + (it.use && it.count > 0 ? ' usable' : '');
+      div.innerHTML = `<span class="inv-icon">${it.icon}</span><span class="inv-count">${it.count}</span><span class="inv-name">${it.name}</span>`;
+      if (it.use) div.addEventListener('click', it.use);
+      hb.appendChild(div);
+    });
+  }
+
+  function useItem(key) {
+    if (state.inv[key] <= 0) return;
+    AudioEngine.playEat();
+    if (key === 'coconut') {
+      state.inv.coconut--;
+      state.thirst = Math.min(100, state.thirst + 18);
+      state.hunger = Math.min(100, state.hunger + 8);
+      toast('🥥 Minum kelapa mentah (+18 Haus, +8 Lapar)');
+    } else if (key === 'berry') {
+      state.inv.berry--;
+      state.hunger = Math.min(100, state.hunger + 15);
+      state.thirst = Math.min(100, state.thirst + 6);
+      toast('🫐 Makan buah beri (+15 Lapar)');
+    } else if (key === 'cocoDrink') {
+      state.inv.cocoDrink--;
+      state.thirst = Math.min(100, state.thirst + 38);
+      state.hp = Math.min(100, state.hp + 10);
+      toast('🥤 Segar! (+38 Haus, +10 HP)');
+    } else if (key === 'grilledFish') {
+      state.inv.grilledFish--;
+      state.hunger = Math.min(100, state.hunger + 45);
+      state.hp = Math.min(100, state.hp + 15);
+      toast('🍖 Lezat! (+45 Lapar, +15 HP)');
+    }
+    renderHotbar();
+  }
+
+  function useBestConsumable() {
+    if (state.inv.cocoDrink > 0 && state.thirst < 80) return useItem('cocoDrink');
+    if (state.inv.grilledFish > 0 && state.hunger < 80) return useItem('grilledFish');
+    if (state.inv.coconut > 0 && state.thirst < 90) return useItem('coconut');
+    if (state.inv.berry > 0 && state.hunger < 95) return useItem('berry');
+    toast('Tidak ada makanan/minuman yang perlu dipakai sekarang.');
+  }
+
+  function renderCraftModal() {
+    const list = document.getElementById('craft-list');
+    list.innerHTML = '';
+    recipes.forEach((r) => {
+      const done = r.oneTime && r.oneTime();
+      const canAfford = !done && Object.entries(r.cost).every(([k, v]) => state.inv[k] >= v);
+      const row = document.createElement('div');
+      row.className = 'craft-item';
+      row.innerHTML = `
+        <div class="craft-info">
+          <h3>${r.name}</h3>
+          <p>${r.desc}</p>
+          <div class="craft-cost">${done ? '✅ Sudah Dibuat' : r.costText}</div>
+        </div>
+      `;
+      const btn = document.createElement('button');
+      btn.className = 'craft-btn';
+      btn.textContent = done ? 'Selesai' : 'Craft';
+      btn.disabled = !canAfford;
+      btn.addEventListener('click', () => {
+        if (!canAfford) return;
+        AudioEngine.playCraft();
+        r.craft();
+        renderHotbar();
+        renderCraftModal();
+      });
+      row.appendChild(btn);
+      list.appendChild(row);
+    });
+  }
+
+  function toggleCraftModal() {
+    if (!state.started || state.ended) return;
+    const cm = document.getElementById('craft-modal');
+    const opening = cm.style.display === 'none';
+    cm.style.display = opening ? 'flex' : 'none';
+    state.paused = opening;
+    if (opening) renderCraftModal();
+  }
+
+  function togglePause() {
+    if (!state.started || state.ended) return;
+    const cm = document.getElementById('craft-modal');
+    if (cm.style.display !== 'none') { toggleCraftModal(); return; }
+    const pm = document.getElementById('pause-modal');
+    const opening = pm.style.display === 'none';
+    pm.style.display = opening ? 'flex' : 'none';
+    state.paused = opening;
+  }
+
+  // ---------- INTERACTION LOGIC ----------
+  function findNearestInteractable() {
+    let best = null, bestDist = 4.6;
+    for (const obj of interactables) {
+      if (obj.cooldown > 0) continue;
+      const d = player.pos.distanceTo(obj.pos);
+      if (d < bestDist) {
+        bestDist = d;
+        best = obj;
+      }
+    }
+    return best;
+  }
+
+  function tryInteract() {
+    const obj = findNearestInteractable();
+    if (!obj) return;
+    if (obj.type === 'raft') {
+      endGame(true);
+      return;
+    }
+    if (obj.type === 'shelter') {
+      state.timeOfDay = 0.28;
+      state.day += 1;
+      state.stamina = 100;
+      state.hp = Math.min(100, state.hp + 20);
+      toast(`☀️ Selamat pagi! Hari ke-${state.day}`);
+      return;
+    }
+
+    AudioEngine.playGather();
+    const mult = state.hasAxe ? 2 : 1;
+    if (obj.type === 'palm_coco') {
+      state.inv.coconut += 1;
+      state.inv.wood += 1 * mult;
+      state.inv.palmLeaf += 1;
+      toast(`+1 🥥, +${mult} 🪵, +1 🌴`);
+    } else if (obj.type === 'palm') {
+      state.inv.wood += 2 * mult;
+      state.inv.palmLeaf += 1;
+      toast(`+${2 * mult} 🪵, +1 🌴`);
+    } else if (obj.type === 'rock') {
+      state.inv.stone += 1 * mult;
+      toast(`+${mult} 🪨 Batu`);
+    } else if (obj.type === 'wood') {
+      state.inv.wood += 2 * mult;
+      toast(`+${2 * mult} 🪵 Kayu Apung`);
+    } else if (obj.type === 'berry') {
+      state.inv.berry += 2;
+      toast('+2 🫐 Buah Beri');
+    } else if (obj.type === 'fish') {
+      state.inv.rawFish += 1;
+      toast('+1 🐟 Ikan Segar');
+    }
+
+    state.gatheredTotal += 1;
+    state.stamina = Math.max(0, state.stamina - 4);
+    obj.cooldown = 18;
+    if (obj.type === 'wood' || obj.type === 'berry' || obj.type === 'fish') {
+      obj.mesh.visible = false;
+    }
+    renderHotbar();
+  }
+
+  function endGame(won) {
+    state.ended = true;
+    state.paused = true;
+    const em = document.getElementById('end-modal');
+    document.getElementById('end-badge').textContent = won ? '🏆 BERHASIL KABUR' : '💀 KEHABISAN TENAGA';
+    document.getElementById('end-title').textContent = won ? 'Selamat! Kamu Bertahan Hidup!' : 'Petualangan Berakhir';
+    document.getElementById('end-desc').textContent = won
+      ? `Kamu berhasil merakit kapal penyelamat dalam ${state.day} hari dan mengumpulkan ${state.gatheredTotal} sumber daya.`
+      : `Kamu bertahan selama ${state.day} hari di pulau tropis. Coba lagi dan jaga tingkat haus serta laparmu!`;
+    em.style.display = 'flex';
+  }
+
+  // ---------- BUTTON BINDINGS ----------
+  document.getElementById('btn-start').addEventListener('click', () => {
+    AudioEngine.init();
+    document.getElementById('start-modal').style.display = 'none';
+    document.getElementById('hud').style.display = 'flex';
+    document.getElementById('crosshair').style.display = 'block';
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+      document.getElementById('touch-controls').style.display = 'block';
+    }
+    state.started = true;
+    renderHotbar();
+    toast('Kumpulkan kayu, batu & kelapa di sekitar pantai!');
+  });
+  document.getElementById('btn-craft').addEventListener('click', toggleCraftModal);
+  document.getElementById('btn-close-craft').addEventListener('click', toggleCraftModal);
+  document.getElementById('btn-pause').addEventListener('click', togglePause);
+  document.getElementById('btn-resume').addEventListener('click', togglePause);
+  document.getElementById('btn-quality').addEventListener('click', () => {
+    qualityIdx = (qualityIdx + 1) % qualityPresets.length;
+    applyQuality();
+  });
+  document.getElementById('btn-sound').addEventListener('click', () => {
+    AudioEngine.init();
+    const muted = AudioEngine.toggleMute();
+    document.getElementById('btn-sound').textContent = muted ? '🔇 Bisu' : '🔊 Audio';
+  });
+  document.getElementById('btn-toggle-touch').addEventListener('click', () => {
+    const tc = document.getElementById('touch-controls');
+    tc.style.display = tc.style.display === 'none' ? 'block' : 'none';
+  });
+  document.getElementById('btn-restart-pause').addEventListener('click', () => window.location.reload());
+  document.getElementById('btn-play-again').addEventListener('click', () => window.location.reload());
+
+  // Touch Action Buttons
+  document.getElementById('t-gather').addEventListener('click', tryInteract);
+  document.getElementById('t-craft').addEventListener('click', toggleCraftModal);
+  document.getElementById('t-use').addEventListener('click', useBestConsumable);
+  document.getElementById('t-jump').addEventListener('click', () => {
+    if (player.grounded) { player.velY = 8.2; player.grounded = false; AudioEngine.playJump(); }
+  });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    applyQuality();
+  });
+
+  // ---------- MAIN GAME LOOP ----------
+  let lastTime = performance.now();
+  const cDaySky = new THREE.Color(0x7ec8e3);
+  const cSunsetSky = new THREE.Color(0xf97316);
+  const cNightSky = new THREE.Color(0x091326);
+
+  function animate(now) {
+    requestAnimationFrame(animate);
+    const dt = Math.min(0.05, (now - lastTime) / 1000);
+    lastTime = now;
+    const t = now * 0.001;
+
+    // Animate Ocean Waves
+    const wPos = waterGeo.attributes.position;
+    for (let i = 0; i < wPos.count; i++) {
+      const wx = wPos.getX(i), wz = wPos.getZ(i);
+      const wave = Math.sin(wx * 0.12 + t * 1.8) * 0.22 + Math.cos(wz * 0.1 + t * 1.4) * 0.18;
+      wPos.setY(i, wave);
+    }
+    wPos.needsUpdate = true;
+    waterGeo.computeVertexNormals();
+
+    // Sway Palm Fronds & Drift Clouds
+    for (const pf of palmFronds) {
+      pf.mesh.rotation.z = Math.sin(t * 1.4 + pf.phase) * 0.07;
+    }
+    for (const cl of clouds) {
+      cl.mesh.position.x += cl.speed * dt;
+      if (cl.mesh.position.x > 120) cl.mesh.position.x = -120;
+    }
+    for (const w of wildlife) {
+      w.angle += w.speed * dt;
+      w.mesh.position.x = w.baseX + Math.cos(w.angle) * w.radius;
+      w.mesh.position.z = w.baseZ + Math.sin(w.angle) * w.radius;
+      w.mesh.rotation.y = -w.angle;
+    }
+    if (flameMesh && campfireLight) {
+      const flick = 0.88 + Math.sin(t * 18) * 0.14;
+      flameMesh.scale.set(1, flick, 1);
+      campfireLight.intensity = 2.8 + Math.sin(t * 15) * 0.6;
+    }
+
+    if (!state.started) {
+      // Cinematic rotating camera on Start Screen
+      camera.position.set(Math.sin(t * 0.14) * 48, 18, Math.cos(t * 0.14) * 48);
+      camera.lookAt(0, 3, 0);
+      renderer.render(scene, camera);
+      return;
+    }
+
+    if (!state.paused && !state.ended) {
+      // Day-Night Cycle (1 full day ~ 150 seconds)
+      state.timeOfDay += dt / 150;
+      if (state.timeOfDay >= 1) {
+        state.timeOfDay -= 1;
+        state.day += 1;
+        toast(`☀️ Hari ke-${state.day} dimulai!`);
+      }
+      const sunAngle = (state.timeOfDay - 0.25) * Math.PI * 2;
+      const sunY = Math.sin(sunAngle) * 90;
+      const sunX = Math.cos(sunAngle) * 90;
+      sunLight.position.set(sunX, sunY, 35);
+      sunMesh.position.set(sunX * 1.6, sunY * 1.6, 55);
+
+      let skyCol = cDaySky.clone();
+      if (sunY < 0) {
+        skyCol = cNightSky.clone();
+        sunLight.intensity = 0.15;
+        hemiLight.intensity = 0.28;
+        starMat.opacity = Math.min(1, (-sunY) / 30);
+      } else if (sunY < 26) {
+        const f = sunY / 26;
+        skyCol = cSunsetSky.clone().lerp(cDaySky, f);
+        sunLight.intensity = 0.6 + f * 1.2;
+        hemiLight.intensity = 0.4 + f * 0.35;
+        starMat.opacity = 0;
+      } else {
+        sunLight.intensity = 1.85;
+        hemiLight.intensity = 0.75;
+        starMat.opacity = 0;
+      }
+      scene.background = skyCol;
+      scene.fog.color.copy(skyCol);
+
+      // Update Clock Label
+      const hrs = Math.floor(state.timeOfDay * 24);
+      const mins = Math.floor((state.timeOfDay * 24 - hrs) * 60);
+      const hh = String(hrs).padStart(2, '0');
+      const mm = String(mins).padStart(2, '0');
+      const icon = (hrs >= 6 && hrs < 18) ? '☀️' : '🌙';
+      document.getElementById('day-label').textContent = `${icon} Hari ${state.day} • ${hh}:${mm}`;
+
+      // Movement
+      let moveF = (keys['KeyW'] || keys['ArrowUp'] ? 1 : 0) - (keys['KeyS'] || keys['ArrowDown'] ? 1 : 0) - joyVec.y;
+      let moveR = (keys['KeyD'] || keys['ArrowRight'] ? 1 : 0) - (keys['KeyA'] || keys['ArrowLeft'] ? 1 : 0) + joyVec.x;
+      const len = Math.hypot(moveF, moveR);
+      if (len > 1) { moveF /= len; moveR /= len; }
+
+      const isSprinting = (keys['ShiftLeft'] || keys['ShiftRight']) && len > 0.1 && state.stamina > 5;
+      const spd = player.speed * (isSprinting ? player.sprintMult : 1);
+      if (isSprinting) state.stamina = Math.max(0, state.stamina - 16 * dt);
+      else state.stamina = Math.min(100, state.stamina + 9 * dt);
+
+      const sinY = Math.sin(player.yaw), cosY = Math.cos(player.yaw);
+      const dx = (-sinY * moveF + cosY * moveR) * spd * dt;
+      const dz = (-cosY * moveF - sinY * moveR) * spd * dt;
+      player.pos.x = Math.max(-62, Math.min(62, player.pos.x + dx));
+      player.pos.z = Math.max(-62, Math.min(62, player.pos.z + dz));
+
+      // Gravity & Terrain Collision
+      if (keys['Space'] && player.grounded) {
+        player.velY = 8.2;
+        player.grounded = false;
+        AudioEngine.playJump();
+      }
+      player.velY -= 22 * dt;
+      player.pos.y += player.velY * dt;
+      const floorY = Math.max(-0.4, getIslandHeight(player.pos.x, player.pos.z)) + 1.75;
+      if (player.pos.y <= floorY) {
+        player.pos.y = floorY;
+        player.velY = 0;
+        player.grounded = true;
+      }
+
+      // Camera Update
+      camera.position.copy(player.pos);
+      camera.rotation.order = 'YXZ';
+      camera.rotation.y = player.yaw;
+      camera.rotation.x = player.pitch;
+
+      // Cooldowns & Prompt
+      for (const obj of interactables) {
+        if (obj.cooldown > 0) {
+          obj.cooldown -= dt;
+          if (obj.cooldown <= 0) obj.mesh.visible = true;
+        }
+      }
+      const near = findNearestInteractable();
+      const promptEl = document.getElementById('interact-prompt');
+      if (near) {
+        promptEl.style.display = 'block';
+        promptEl.textContent = `[E] ${near.label}`;
+      } else {
+        promptEl.style.display = 'none';
+      }
+
+      // Survival Drain
+      state.hunger = Math.max(0, state.hunger - 0.55 * dt);
+      state.thirst = Math.max(0, state.thirst - 0.72 * dt);
+      if (state.hunger <= 0 || state.thirst <= 0) {
+        state.hp = Math.max(0, state.hp - 3.2 * dt);
+      } else if (state.hunger > 70 && state.thirst > 70) {
+        state.hp = Math.min(100, state.hp + 0.8 * dt);
+      }
+      if (state.hp <= 0) endGame(false);
+
+      // Update HUD Bars
+      document.getElementById('hp-bar').style.width = state.hp + '%';
+      document.getElementById('hp-val').textContent = Math.ceil(state.hp) + '%';
+      document.getElementById('hunger-bar').style.width = state.hunger + '%';
+      document.getElementById('hunger-val').textContent = Math.ceil(state.hunger) + '%';
+      document.getElementById('thirst-bar').style.width = state.thirst + '%';
+      document.getElementById('thirst-val').textContent = Math.ceil(state.thirst) + '%';
+      document.getElementById('stamina-bar').style.width = state.stamina + '%';
+      document.getElementById('stamina-val').textContent = Math.ceil(state.stamina) + '%';
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  window.addEventListener('load', () => {
+    requestAnimationFrame(animate);
+  });
+})();
+</script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "appId": "com.islandsurvival.hd3d",
+  "appName": "Island Survival 3D",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}
