@@ -34,6 +34,7 @@ jobs:
             cp icon-192.png "$dir/ic_launcher.png" || true
             cp icon-192.png "$dir/ic_launcher_round.png" || true
           done
+          sed -i 's/<activity /<activity android:screenOrientation="landscape" /' android/app/src/main/AndroidManifest.xml || true
           npx cap sync android
 
       - name: Build Debug APK

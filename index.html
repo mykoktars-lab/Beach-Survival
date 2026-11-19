@@ -216,6 +216,33 @@
       h1 { font-size: 22px; }
       .ctrl-grid { grid-template-columns: 1fr; }
     }
+    /* Landscape Orientation Prompt for Mobile Portrait */
+    #rotate-overlay {
+      position: fixed; inset: 0; z-index: 999;
+      background: rgba(5, 14, 24, 0.94);
+      backdrop-filter: blur(14px);
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; padding: 24px; gap: 14px;
+    }
+    .rotate-icon { font-size: 52px; animation: tiltPhone 1.8s ease-in-out infinite; }
+    @keyframes tiltPhone {
+      0%, 100% { transform: rotate(0deg); }
+      50% { transform: rotate(-90deg); }
+    }
+    @media (max-width: 900px) and (orientation: portrait) {
+      #rotate-overlay { display: flex; }
+    }
+    @media (max-height: 480px) {
+      #hud { padding: 8px 12px; }
+      .stats-panel { padding: 7px 10px; min-width: 170px; }
+      .bar-wrap { margin-bottom: 4px; }
+      .day-row { margin-bottom: 5px; font-size: 11px; }
+      .hotbar { padding: 5px 8px; gap: 5px; }
+      .inv-slot { min-width: 46px; padding: 4px 6px; }
+      #joystick-zone { bottom: 68px; left: 16px; width: 104px; height: 104px; }
+      .touch-btns { bottom: 68px; right: 16px; grid-template-columns: repeat(2, 54px); gap: 8px; }
+      .t-btn { width: 54px; height: 54px; font-size: 10px; }
+    }
   </style>
   <link rel="icon" type="image/png" href="favicon.png" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
@@ -223,6 +250,11 @@
   <meta name="theme-color" content="#071926" />
 </head>
 <body>
+  <div id="rotate-overlay">
+    <div class="rotate-icon">📱</div>
+    <h2>Putar ke Mode Landscape</h2>
+    <p class="sub" style="max-width:320px;margin:0;">Game ini dirancang untuk tampilan layar mendatar (landscape) agar kontrol dan pemandangan 3D lebih luas.</p>
+  </div>
   <canvas id="game-canvas"></canvas>
   <div id="crosshair"></div>
   <div id="interact-prompt">[E] Kumpulkan</div>
@@ -517,12 +549,102 @@
   sunLight.shadow.bias = -0.0005;
   scene.add(sunLight);
 
-  // Sun & Moon Visual Spheres + Starfield
-  const sunMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(5, 24, 24),
-    new THREE.MeshBasicMaterial({ color: 0xfff3b0 })
-  );
-  scene.add(sunMesh);
+  // Realistic Atmospheric Scattering Sky Dome (GLSL Shader)
+  const skyUniforms = {
+    uSunDir: { value: new THREE.Vector3(0.4, 0.6, 0.3).normalize() },
+    uTime: { value: 0 },
+    uNightMix: { value: 0 }
+  };
+  const skyGeo = new THREE.SphereGeometry(280, 32, 24);
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    uniforms: skyUniforms,
+    vertexShader: `
+      varying vec3 vWorldDir;
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldDir = normalize(position);
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uSunDir;
+      uniform float uTime;
+      uniform float uNightMix;
+      varying vec3 vWorldDir;
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
+          mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+          u.y
+        );
+      }
+      float fbm(vec2 p) {
+        float v = 0.0;
+        float a = 0.5;
+        for (int i = 0; i < 4; i++) {
+          v += a * noise(p);
+          p *= 2.05;
+          a *= 0.5;
+        }
+        return v;
+      }
+
+      void main() {
+        vec3 dir = normalize(vWorldDir);
+        float h = clamp(dir.y, 0.0, 1.0);
+        float sunElev = clamp(uSunDir.y, -0.3, 1.0);
+
+        // Day Rayleigh gradient
+        vec3 dayZenith = vec3(0.08, 0.36, 0.78);
+        vec3 dayHorizon = vec3(0.58, 0.82, 0.96);
+        vec3 dayCol = mix(dayHorizon, dayZenith, pow(h, 0.55));
+
+        // Sunset / Golden hour gradient
+        vec3 setZenith = vec3(0.16, 0.14, 0.36);
+        vec3 setHorizon = vec3(0.98, 0.48, 0.20);
+        vec3 setCol = mix(setHorizon, setZenith, pow(h, 0.5));
+
+        // Night gradient
+        vec3 nightZenith = vec3(0.01, 0.02, 0.07);
+        vec3 nightHorizon = vec3(0.04, 0.08, 0.16);
+        vec3 nightCol = mix(nightHorizon, nightZenith, pow(h, 0.6));
+
+        float sunsetFactor = smoothstep(0.32, 0.0, abs(sunElev)) * (1.0 - uNightMix);
+        vec3 sky = mix(dayCol, setCol, sunsetFactor * 0.85);
+        sky = mix(sky, nightCol, uNightMix);
+
+        // Sun disc & atmospheric Mie glow
+        float sunDot = max(dot(dir, normalize(uSunDir)), 0.0);
+        float mie = pow(sunDot, 10.0) * 0.45 + pow(sunDot, 90.0) * 0.7;
+        float sunDisc = smoothstep(0.9985, 0.9994, sunDot);
+        vec3 sunColor = mix(vec3(1.0, 0.55, 0.25), vec3(1.0, 0.97, 0.88), clamp(sunElev * 2.5, 0.0, 1.0));
+        sky += sunColor * (mie + sunDisc * 2.2) * (1.0 - uNightMix * 0.85);
+
+        // Realistic soft procedural sky clouds
+        if (dir.y > 0.03) {
+          vec2 uv = dir.xz / (dir.y + 0.16) * 1.4 + vec2(uTime * 0.012, uTime * 0.005);
+          float c = fbm(uv);
+          float cloudMask = smoothstep(0.48, 0.78, c) * smoothstep(0.03, 0.22, dir.y);
+          vec3 cloudCol = mix(vec3(0.98, 0.99, 1.0), vec3(1.0, 0.68, 0.45), sunsetFactor * 0.8);
+          cloudCol = mix(cloudCol, vec3(0.08, 0.12, 0.22), uNightMix);
+          sky = mix(sky, cloudCol, cloudMask * 0.65);
+        }
+
+        gl_FragColor = vec4(sky, 1.0);
+      }
+    `
+  });
+  const skyDome = new THREE.Mesh(skyGeo, skyMat);
+  scene.add(skyDome);
 
   const starGeo = new THREE.BufferGeometry();
   const starPos = [];
@@ -589,31 +711,135 @@
   terrainGeo.computeVertexNormals();
 
   const terrainMat = new THREE.MeshStandardMaterial({
-    map: texSand, vertexColors: true, roughness: 0.88, metalness: 0.04
+    map: texSand, bumpMap: texSand, bumpScale: 0.12,
+    vertexColors: true, roughness: 0.86, metalness: 0.04
   });
   const terrain = new THREE.Mesh(terrainGeo, terrainMat);
   terrain.receiveShadow = true;
   scene.add(terrain);
 
-  // ---------- ANIMATED OCEAN WATER ----------
-  const waterGeo = new THREE.PlaneGeometry(420, 420, 96, 96);
+  // ---------- REALISTIC GLSL OCEAN WATER ----------
+  const waterGeo = new THREE.PlaneGeometry(460, 460, 128, 128);
   waterGeo.rotateX(-Math.PI / 2);
-  const waterBaseY = new Float32Array(waterGeo.attributes.position.count);
-  const waterMat = new THREE.MeshPhysicalMaterial({
-    color: 0x0694a2,
-    emissive: 0x022c43,
-    emissiveIntensity: 0.25,
-    roughness: 0.14,
-    metalness: 0.15,
-    clearcoat: 0.9,
-    clearcoatRoughness: 0.1,
+  const waterUniforms = {
+    uTime: { value: 0 },
+    uSunDir: skyUniforms.uSunDir,
+    uNightMix: skyUniforms.uNightMix,
+    uFogColor: { value: new THREE.Color(0x7ec8e3) },
+    uFogDensity: { value: 0.0065 }
+  };
+  const waterMat = new THREE.ShaderMaterial({
     transparent: true,
-    opacity: 0.86,
-    flatShading: false
+    uniforms: waterUniforms,
+    vertexShader: `
+      uniform float uTime;
+      varying vec3 vWorldPos;
+      varying float vWaveH;
+
+      void main() {
+        vec3 p = position;
+        float w1 = sin(p.x * 0.14 + uTime * 1.9) * cos(p.z * 0.11 + uTime * 1.4) * 0.24;
+        float w2 = sin(p.x * 0.31 - uTime * 2.3 + p.z * 0.24) * 0.11;
+        float w3 = cos(p.z * 0.45 + uTime * 2.8 - p.x * 0.18) * 0.06;
+        p.y += w1 + w2 + w3;
+        vWaveH = p.y;
+        vec4 wp = modelMatrix * vec4(p, 1.0);
+        vWorldPos = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform vec3 uSunDir;
+      uniform float uNightMix;
+      uniform vec3 uFogColor;
+      uniform float uFogDensity;
+      varying vec3 vWorldPos;
+      varying float vWaveH;
+
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+      }
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
+          mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+          u.y
+        );
+      }
+
+      vec3 getWaterNormal(vec2 pos, float t) {
+        float eps = 0.22;
+        float h0 = noise(pos * 0.45 + vec2(t * 0.6, t * 0.4)) * 0.55
+                 + noise(pos * 1.15 - vec2(t * 0.9, t * 0.7)) * 0.28;
+        float hx = noise((pos + vec2(eps, 0.0)) * 0.45 + vec2(t * 0.6, t * 0.4)) * 0.55
+                 + noise((pos + vec2(eps, 0.0)) * 1.15 - vec2(t * 0.9, t * 0.7)) * 0.28;
+        float hz = noise((pos + vec2(0.0, eps)) * 0.45 + vec2(t * 0.6, t * 0.4)) * 0.55
+                 + noise((pos + vec2(0.0, eps)) * 1.15 - vec2(t * 0.9, t * 0.7)) * 0.28;
+        vec3 n = normalize(vec3((h0 - hx) * 1.8, 1.0, (h0 - hz) * 1.8));
+        return n;
+      }
+
+      void main() {
+        vec3 viewDir = normalize(cameraPosition - vWorldPos);
+        vec3 N = getWaterNormal(vWorldPos.xz, uTime);
+        vec3 L = normalize(uSunDir);
+        float sunElev = clamp(L.y, -0.3, 1.0);
+
+        // Approximate island shore distance for shallow turquoise & shoreline foam
+        float dist = length(vWorldPos.xz);
+        float angle = atan(vWorldPos.z, vWorldPos.x);
+        float cove = sin(angle * 3.0 + 0.6) * 3.2 + cos(angle * 5.0) * 1.6;
+        float shoreRadius = 35.5 + cove;
+        float shoreDist = max(0.0, dist - shoreRadius);
+
+        // Depth-based water color (turquoise lagoon -> deep ocean blue)
+        vec3 shallowCol = vec3(0.07, 0.66, 0.68);
+        vec3 deepCol = vec3(0.01, 0.16, 0.34);
+        float depthFactor = smoothstep(0.0, 26.0, shoreDist);
+        vec3 waterBase = mix(shallowCol, deepCol, depthFactor);
+        waterBase *= mix(1.0, 0.22, uNightMix);
+
+        // Fresnel sky reflection
+        float fresnel = pow(1.0 - max(dot(viewDir, N), 0.0), 4.0);
+        fresnel = clamp(fresnel * 0.85 + 0.08, 0.0, 0.95);
+        float sunsetFactor = smoothstep(0.32, 0.0, abs(sunElev)) * (1.0 - uNightMix);
+        vec3 skyRefl = mix(vec3(0.45, 0.76, 0.95), vec3(0.95, 0.52, 0.25), sunsetFactor * 0.85);
+        skyRefl = mix(skyRefl, vec3(0.03, 0.06, 0.14), uNightMix);
+
+        vec3 col = mix(waterBase, skyRefl, fresnel);
+
+        // Specular sun / moon glints
+        vec3 H = normalize(L + viewDir);
+        float spec = pow(max(dot(N, H), 0.0), 180.0);
+        vec3 specCol = mix(vec3(1.0, 0.96, 0.85), vec3(1.0, 0.62, 0.28), sunsetFactor);
+        specCol = mix(specCol, vec3(0.55, 0.68, 0.95), uNightMix);
+        col += specCol * spec * (1.6 - uNightMix * 1.1);
+
+        // Animated shoreline foam & wave crest foam
+        float foamWave = sin(shoreDist * 1.6 - uTime * 2.6 + noise(vWorldPos.xz * 0.3) * 3.0);
+        float shoreFoam = smoothstep(4.2, 0.0, shoreDist) * smoothstep(-0.2, 0.65, foamWave);
+        float crestFoam = smoothstep(0.24, 0.36, vWaveH) * 0.35;
+        float foam = clamp(shoreFoam + crestFoam, 0.0, 1.0);
+        vec3 foamCol = mix(vec3(0.96, 0.98, 1.0), vec3(0.25, 0.3, 0.4), uNightMix);
+        col = mix(col, foamCol, foam * 0.82);
+
+        // Exponential fog matching scene
+        float camDist = length(cameraPosition - vWorldPos);
+        float fogFactor = 1.0 - exp(-uFogDensity * uFogDensity * camDist * camDist);
+        col = mix(col, uFogColor, clamp(fogFactor, 0.0, 1.0));
+
+        float alpha = mix(0.68, 0.94, depthFactor);
+        alpha = max(alpha, foam * 0.9);
+        gl_FragColor = vec4(col, alpha);
+      }
+    `
   });
   const waterMesh = new THREE.Mesh(waterGeo, waterMat);
   waterMesh.position.y = 0;
-  waterMesh.receiveShadow = true;
   scene.add(waterMesh);
 
   // ---------- INTERACTABLE WORLD OBJECTS ----------
@@ -627,46 +853,72 @@
 
   function createPalmTree(x, z, hasCoconut) {
     const y = getIslandHeight(x, z);
-    if (y < 0.8) return;
+    if (y < 0.75) return;
     const g = new THREE.Group();
     g.position.set(x, y, z);
 
-    const lean = (Math.random() - 0.5) * 0.25;
-    const segments = 6;
+    const lean = (Math.random() - 0.5) * 0.24;
+    const segments = 7;
     let curY = 0, curX = 0;
-    const trunkMat = new THREE.MeshStandardMaterial({ map: texBark, roughness: 0.9 });
+    const trunkMat = new THREE.MeshStandardMaterial({
+      map: texBark, bumpMap: texBark, bumpScale: 0.14, roughness: 0.92
+    });
     for (let i = 0; i < segments; i++) {
-      const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.28 - i * 0.03, 0.34 - i * 0.03, 1.35, 8), trunkMat);
-      seg.position.set(curX, curY + 0.65, 0);
-      seg.rotation.z = lean * (i + 1) * 0.28;
+      const rTop = 0.27 - i * 0.025;
+      const rBot = 0.35 - i * 0.025;
+      const seg = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, 1.25, 10), trunkMat);
+      seg.position.set(curX, curY + 0.6, 0);
+      seg.rotation.z = lean * (i + 1) * 0.26;
       seg.castShadow = true;
       seg.receiveShadow = true;
       g.add(seg);
-      curY += 1.22;
-      curX -= Math.sin(seg.rotation.z) * 0.8;
+      curY += 1.14;
+      curX -= Math.sin(seg.rotation.z) * 0.75;
     }
 
+    // Realistic feathered palm fronds (rachis + angled leaflets)
     const crown = new THREE.Group();
     crown.position.set(curX, curY, 0);
-    const frondMat = new THREE.MeshStandardMaterial({ color: 0x2e8b3c, roughness: 0.65, side: THREE.DoubleSide });
-    for (let f = 0; f < 7; f++) {
-      const fGeo = new THREE.ConeGeometry(0.65, 3.6, 5);
-      fGeo.scale(1, 1, 0.14);
-      fGeo.translate(0, 1.7, 0);
-      const frond = new THREE.Mesh(fGeo, frondMat);
-      frond.rotation.y = (f / 7) * Math.PI * 2;
-      frond.rotation.x = 1.12;
-      frond.castShadow = true;
-      crown.add(frond);
-      palmFronds.push({ mesh: frond, phase: Math.random() * 6 });
+    const stemMat = new THREE.MeshStandardMaterial({ color: 0x4b6e28, roughness: 0.8 });
+    const leafMat = new THREE.MeshStandardMaterial({ color: 0x2d7a36, roughness: 0.55, side: THREE.DoubleSide });
+    const leafGeo = new THREE.PlaneGeometry(0.24, 1.35);
+    leafGeo.translate(0, 0.65, 0);
+
+    const frondCount = 9;
+    for (let f = 0; f < frondCount; f++) {
+      const frondGroup = new THREE.Group();
+      frondGroup.rotation.y = (f / frondCount) * Math.PI * 2 + Math.random() * 0.2;
+      frondGroup.rotation.x = 0.78 + (f % 2) * 0.28;
+
+      const rachis = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.05, 3.4, 5), stemMat);
+      rachis.position.y = 1.7;
+      rachis.castShadow = true;
+      frondGroup.add(rachis);
+
+      for (let l = 0; l < 8; l++) {
+        const tFrac = 0.4 + l * 0.36;
+        const scale = 1.0 - Math.abs(l - 3.5) * 0.14;
+        for (const side of [-1, 1]) {
+          const leaflet = new THREE.Mesh(leafGeo, leafMat);
+          leaflet.position.set(0, tFrac, 0);
+          leaflet.rotation.z = side * 1.15;
+          leaflet.rotation.x = 0.28;
+          leaflet.scale.set(scale, scale, 1);
+          leaflet.castShadow = true;
+          frondGroup.add(leaflet);
+        }
+      }
+      crown.add(frondGroup);
+      palmFronds.push({ mesh: frondGroup, phase: Math.random() * 6 });
     }
     g.add(crown);
 
     if (hasCoconut) {
-      const cocoMat = new THREE.MeshStandardMaterial({ color: 0x5c3a21, roughness: 0.8 });
-      for (let c = 0; c < 2; c++) {
-        const coco = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 10), cocoMat);
-        coco.position.set(curX + (c === 0 ? 0.3 : -0.3), curY - 0.35, 0.25);
+      const cocoMat = new THREE.MeshStandardMaterial({ color: 0x4d311a, roughness: 0.75 });
+      for (let c = 0; c < 3; c++) {
+        const a = (c / 3) * Math.PI * 2;
+        const coco = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 12), cocoMat);
+        coco.position.set(curX + Math.cos(a) * 0.32, curY - 0.3, Math.sin(a) * 0.32);
         coco.castShadow = true;
         g.add(coco);
       }
@@ -687,10 +939,12 @@
   function createRock(x, z) {
     const y = getIslandHeight(x, z);
     if (y < 0.2) return;
-    const mat = new THREE.MeshStandardMaterial({ map: texRock, roughness: 0.85, flatShading: true });
-    const mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(0.9 + Math.random() * 0.6, 1), mat);
-    mesh.position.set(x, y + 0.45, z);
-    mesh.scale.set(1.2, 0.85, 1);
+    const mat = new THREE.MeshStandardMaterial({
+      map: texRock, bumpMap: texRock, bumpScale: 0.18, roughness: 0.88
+    });
+    const mesh = new THREE.Mesh(new THREE.DodecahedronGeometry(0.9 + Math.random() * 0.65, 2), mat);
+    mesh.position.set(x, y + 0.4, z);
+    mesh.scale.set(1.25, 0.8, 1.05);
     mesh.rotation.set(Math.random(), Math.random(), Math.random());
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -795,6 +1049,137 @@
     const r = 42 + Math.random() * 5;
     createFishSpot(Math.cos(a) * r, Math.sin(a) * r);
   }
+
+  // ---------- 3 ARTICULATED 3D SURVIVORS (2 LAKI-LAKI, 1 PEREMPUAN) ----------
+  const npcs = [];
+  function createSurvivor(cfg) {
+    const root = new THREE.Group();
+    const skinMat = new THREE.MeshStandardMaterial({ color: cfg.skin, roughness: 0.65 });
+    const shirtMat = new THREE.MeshStandardMaterial({ color: cfg.shirt, roughness: 0.8 });
+    const pantsMat = new THREE.MeshStandardMaterial({ color: cfg.pants, roughness: 0.85 });
+    const hairMat = new THREE.MeshStandardMaterial({ color: cfg.hair, roughness: 0.9 });
+    const shoeMat = new THREE.MeshStandardMaterial({ color: 0x262626, roughness: 0.9 });
+
+    // Torso
+    const torsoW = cfg.gender === 'female' ? 0.42 : 0.50;
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(torsoW, 0.64, 0.26), shirtMat);
+    torso.position.y = 1.12;
+    torso.castShadow = true;
+    root.add(torso);
+
+    // Head + Hair + Eyes
+    const headGroup = new THREE.Group();
+    headGroup.position.y = 1.62;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.19, 14, 14), skinMat);
+    head.castShadow = true;
+    headGroup.add(head);
+
+    const hairTop = new THREE.Mesh(new THREE.SphereGeometry(0.20, 12, 12, 0, Math.PI * 2, 0, Math.PI * 0.58), hairMat);
+    hairTop.position.y = 0.02;
+    headGroup.add(hairTop);
+    if (cfg.gender === 'female') {
+      const ponytail = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.36, 8), hairMat);
+      ponytail.position.set(0, -0.04, -0.20);
+      ponytail.rotation.x = -0.35;
+      headGroup.add(ponytail);
+    }
+
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111827 });
+    for (const ex of [-0.065, 0.065]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.022, 6, 6), eyeMat);
+      eye.position.set(ex, 0.02, 0.175);
+      headGroup.add(eye);
+    }
+    root.add(headGroup);
+
+    // Arms (pivoted at shoulder)
+    const armGeo = new THREE.CylinderGeometry(0.065, 0.055, 0.56, 8);
+    armGeo.translate(0, -0.26, 0);
+    const armL = new THREE.Mesh(armGeo, skinMat);
+    armL.position.set(-(torsoW / 2 + 0.07), 1.40, 0);
+    armL.castShadow = true;
+    const armR = new THREE.Mesh(armGeo, skinMat);
+    armR.position.set(torsoW / 2 + 0.07, 1.40, 0);
+    armR.castShadow = true;
+    root.add(armL, armR);
+
+    // Legs (pivoted at hip)
+    const legGeo = new THREE.CylinderGeometry(0.085, 0.07, 0.76, 8);
+    legGeo.translate(0, -0.38, 0);
+    const legL = new THREE.Mesh(legGeo, pantsMat);
+    legL.position.set(-0.12, 0.80, 0);
+    legL.castShadow = true;
+    const legR = new THREE.Mesh(legGeo, pantsMat);
+    legR.position.set(0.12, 0.80, 0);
+    legR.castShadow = true;
+
+    const footGeo = new THREE.BoxGeometry(0.12, 0.08, 0.22);
+    const footL = new THREE.Mesh(footGeo, shoeMat);
+    footL.position.set(0, -0.76, 0.04);
+    legL.add(footL);
+    const footR = new THREE.Mesh(footGeo, shoeMat);
+    footR.position.set(0, -0.76, 0.04);
+    legR.add(footR);
+    root.add(legL, legR);
+
+    const sy = Math.max(0.2, getIslandHeight(cfg.x, cfg.z));
+    root.position.set(cfg.x, sy, cfg.z);
+    scene.add(root);
+
+    const npc = {
+      ...cfg,
+      mesh: root,
+      armL, armR, legL, legR,
+      homeX: cfg.x, homeZ: cfg.z,
+      targetX: cfg.x, targetZ: cfg.z,
+      waitTimer: Math.random() * 2,
+      walkPhase: Math.random() * 6,
+      giftCooldown: 0
+    };
+    npcs.push(npc);
+    interactables.push({
+      id: 'npc_' + cfg.name,
+      type: 'npc',
+      npc,
+      label: `Bicara dengan ${cfg.name} (${cfg.role})`,
+      mesh: root,
+      pos: root.position,
+      cooldown: 0
+    });
+  }
+
+  createSurvivor({
+    name: 'Raka', role: 'Penjaga Pantai', gender: 'male',
+    x: -4, z: 14, skin: 0xd99b6c, shirt: 0x0284c7, pants: 0xc2b280, hair: 0x1e1b18,
+    lines: [
+      'Raka: "Kumpulkan kayu apung & batu di pantai untuk bikin Api Unggun sebelum malam!"',
+      'Raka: "Kalau haus, petik kelapa dari pohon lalu olah jadi Air Kelapa di menu Craft."',
+      'Raka: "Ini aku bantu sedikit kayu yang kutemukan di tepi ombak."'
+    ],
+    gift: { key: 'wood', icon: '🪵', label: 'Kayu' }
+  });
+
+  createSurvivor({
+    name: 'Bima', role: 'Pencari Bahan', gender: 'male',
+    x: 11, z: 6, skin: 0xc68652, shirt: 0x7c2d12, pants: 0x334155, hair: 0x3b2416,
+    lines: [
+      'Bima: "Buat Kapak Batu dulu supaya hasil tebang kayu dan tambang batu jadi 2x lipat!"',
+      'Bima: "Di tengah pulau banyak semak beri segar kalau kamu butuh makanan cepat."',
+      'Bima: "Nih, ambil satu kelapa segar biar tenagamu tetap penuh."'
+    ],
+    gift: { key: 'coconut', icon: '🥥', label: 'Kelapa' }
+  });
+
+  createSurvivor({
+    name: 'Sari', role: 'Ahli Bertahan Hidup', gender: 'female',
+    x: -10, z: -2, skin: 0xe6ac82, shirt: 0xf43f5e, pants: 0x1d4ed8, hair: 0x271c19,
+    lines: [
+      'Sari: "Kita butuh Gubuk Pantai untuk beristirahat sampai pagi dan Rakit untuk kabur!"',
+      'Sari: "Coba tangkap ikan di air laguna dangkal lalu bakar di api unggun."',
+      'Sari: "Aku baru memetik buah beri, ambil ini untuk bekalmu!"'
+    ],
+    gift: { key: 'berry', icon: '🫐', label: 'Buah Beri' }
+  });
 
   // ---------- GAME STATE ----------
   const state = {
@@ -1241,6 +1626,20 @@
       endGame(true);
       return;
     }
+    if (obj.type === 'npc') {
+      const npc = obj.npc;
+      const line = npc.lines[Math.floor(Math.random() * npc.lines.length)];
+      if (npc.giftCooldown <= 0 && npc.gift) {
+        state.inv[npc.gift.key] += 1;
+        npc.giftCooldown = 45;
+        renderHotbar();
+        toast(`${line} (+1 ${npc.gift.icon} ${npc.gift.label})`);
+      } else {
+        toast(line);
+      }
+      AudioEngine.playEat();
+      return;
+    }
     if (obj.type === 'shelter') {
       state.timeOfDay = 0.28;
       state.day += 1;
@@ -1299,6 +1698,14 @@
   // ---------- BUTTON BINDINGS ----------
   document.getElementById('btn-start').addEventListener('click', () => {
     AudioEngine.init();
+    try {
+      if (document.documentElement.requestFullscreen && ('ontouchstart' in window || navigator.maxTouchPoints > 0)) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(() => {});
+      }
+    } catch (e) {}
     document.getElementById('start-modal').style.display = 'none';
     document.getElementById('hud').style.display = 'flex';
     document.getElementById('crosshair').style.display = 'block';
@@ -1355,15 +1762,8 @@
     lastTime = now;
     const t = now * 0.001;
 
-    // Animate Ocean Waves
-    const wPos = waterGeo.attributes.position;
-    for (let i = 0; i < wPos.count; i++) {
-      const wx = wPos.getX(i), wz = wPos.getZ(i);
-      const wave = Math.sin(wx * 0.12 + t * 1.8) * 0.22 + Math.cos(wz * 0.1 + t * 1.4) * 0.18;
-      wPos.setY(i, wave);
-    }
-    wPos.needsUpdate = true;
-    waterGeo.computeVertexNormals();
+    // Animate Ocean Waves (GPU Shader)
+    waterUniforms.uTime.value = t;
 
     // Sway Palm Fronds & Drift Clouds
     for (const pf of palmFronds) {
@@ -1373,6 +1773,51 @@
       cl.mesh.position.x += cl.speed * dt;
       if (cl.mesh.position.x > 120) cl.mesh.position.x = -120;
     }
+    for (const npc of npcs) {
+      if (npc.giftCooldown > 0) npc.giftCooldown -= dt;
+      const distToPlayer = npc.mesh.position.distanceTo(player.pos);
+      if (state.started && distToPlayer < 4.5) {
+        // Stop and face the player politely
+        const dxp = player.pos.x - npc.mesh.position.x;
+        const dzp = player.pos.z - npc.mesh.position.z;
+        npc.mesh.rotation.y = Math.atan2(dxp, dzp);
+        npc.armL.rotation.x *= 0.85;
+        npc.armR.rotation.x *= 0.85;
+        npc.legL.rotation.x *= 0.85;
+        npc.legR.rotation.x *= 0.85;
+      } else {
+        const dx = npc.targetX - npc.mesh.position.x;
+        const dz = npc.targetZ - npc.mesh.position.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < 0.4) {
+          npc.waitTimer -= dt;
+          npc.armL.rotation.x *= 0.85;
+          npc.armR.rotation.x *= 0.85;
+          npc.legL.rotation.x *= 0.85;
+          npc.legR.rotation.x *= 0.85;
+          if (npc.waitTimer <= 0) {
+            const a = Math.random() * Math.PI * 2;
+            const r = 3 + Math.random() * 8;
+            npc.targetX = npc.homeX + Math.cos(a) * r;
+            npc.targetZ = npc.homeZ + Math.sin(a) * r;
+            npc.waitTimer = 1.5 + Math.random() * 3;
+          }
+        } else {
+          const step = Math.min(dist, 2.2 * dt);
+          npc.mesh.position.x += (dx / dist) * step;
+          npc.mesh.position.z += (dz / dist) * step;
+          npc.mesh.position.y = Math.max(0.1, getIslandHeight(npc.mesh.position.x, npc.mesh.position.z));
+          npc.mesh.rotation.y = Math.atan2(dx, dz);
+          npc.walkPhase += dt * 7.5;
+          const swing = Math.sin(npc.walkPhase) * 0.55;
+          npc.legL.rotation.x = swing;
+          npc.legR.rotation.x = -swing;
+          npc.armL.rotation.x = -swing * 0.7;
+          npc.armR.rotation.x = swing * 0.7;
+        }
+      }
+    }
+
     for (const w of wildlife) {
       w.angle += w.speed * dt;
       w.mesh.position.x = w.baseX + Math.cos(w.angle) * w.radius;
@@ -1387,7 +1832,9 @@
 
     if (!state.started) {
       // Cinematic rotating camera on Start Screen
+      skyUniforms.uTime.value = t;
       camera.position.set(Math.sin(t * 0.14) * 48, 18, Math.cos(t * 0.14) * 48);
+      skyDome.position.copy(camera.position);
       camera.lookAt(0, 3, 0);
       renderer.render(scene, camera);
       return;
@@ -1405,27 +1852,34 @@
       const sunY = Math.sin(sunAngle) * 90;
       const sunX = Math.cos(sunAngle) * 90;
       sunLight.position.set(sunX, sunY, 35);
-      sunMesh.position.set(sunX * 1.6, sunY * 1.6, 55);
+      skyUniforms.uSunDir.value.set(sunX, sunY, 35).normalize();
+      skyUniforms.uTime.value = t;
+      skyDome.position.copy(camera.position);
 
       let skyCol = cDaySky.clone();
       if (sunY < 0) {
         skyCol = cNightSky.clone();
-        sunLight.intensity = 0.15;
+        skyUniforms.uNightMix.value = Math.min(1, (-sunY) / 22);
+        sunLight.intensity = 0.18;
         hemiLight.intensity = 0.28;
-        starMat.opacity = Math.min(1, (-sunY) / 30);
+        starMat.opacity = Math.min(1, (-sunY) / 26);
       } else if (sunY < 26) {
         const f = sunY / 26;
         skyCol = cSunsetSky.clone().lerp(cDaySky, f);
-        sunLight.intensity = 0.6 + f * 1.2;
-        hemiLight.intensity = 0.4 + f * 0.35;
+        skyUniforms.uNightMix.value = 0;
+        sunLight.intensity = 0.7 + f * 1.15;
+        sunLight.color.setHex(0xffb870).lerp(new THREE.Color(0xfff4d6), f);
+        hemiLight.intensity = 0.45 + f * 0.3;
         starMat.opacity = 0;
       } else {
-        sunLight.intensity = 1.85;
-        hemiLight.intensity = 0.75;
+        skyUniforms.uNightMix.value = 0;
+        sunLight.intensity = 1.9;
+        sunLight.color.setHex(0xfff4d6);
+        hemiLight.intensity = 0.78;
         starMat.opacity = 0;
       }
-      scene.background = skyCol;
       scene.fog.color.copy(skyCol);
+      waterUniforms.uFogColor.value.copy(skyCol);
 
       // Update Clock Label
       const hrs = Math.floor(state.timeOfDay * 24);
